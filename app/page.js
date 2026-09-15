@@ -81,7 +81,7 @@ export default function Home() {
           >
             {turmas.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.nome_disciplina || t.nome}
+                {t.disciplina || t.nome}
               </option>
             ))}
           </select>
