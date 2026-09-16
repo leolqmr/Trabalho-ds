@@ -1,42 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import QRCode from "qrcode";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Loading";
 import StatusBadge from "@/components/StatusBadge";
 import { useProfile } from "@/hooks/useProfile";
 import { calcularFrequencia, statusFrequencia } from "@/lib/frequencia";
-import { formatarDataHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
-import type { Aula, LinhaRelatorio, Matricula, Perfil, Presenca, Turma } from "@/lib/types";
+import type { LinhaRelatorio, Matricula, Perfil, Presenca, Turma } from "@/lib/types";
+
+type AlunoMatriculado = Perfil & {
+  statusPresenca: "PRESENTE" | "AUSENTE";
+};
 
 export default function TurmaPage() {
   const params = useParams<{ id: string }>();
   const turmaId = params.id;
   const { profile, loading, error } = useProfile("professor");
+
   const [turma, setTurma] = useState<Turma | null>(null);
-  const [aulas, setAulas] = useState<Aula[]>([]);
   const [linhas, setLinhas] = useState<LinhaRelatorio[]>([]);
-  const [presencas, setPresencas] = useState<Presenca[]>([]);
+  const [alunosLista, setAlunosLista] = useState<AlunoMatriculado[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [emailAluno, setEmailAluno] = useState("");
   const [mensagemAluno, setMensagemAluno] = useState<string | null>(null);
   const [erroAluno, setErroAluno] = useState<string | null>(null);
-  const [criandoAula, setCriandoAula] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-
-  const aulaAtiva = useMemo(
-    () => aulas.find((aula) => aula.ativa && new Date(aula.expira_em).getTime() > Date.now()) ?? null,
-    [aulas]
-  );
+  const [salvandoChamada, setSalvandoChamada] = useState(false);
+  const [mensagemChamada, setMensagemChamada] = useState<string | null>(null);
 
   const carregarTudo = useCallback(async () => {
     if (!profile || !turmaId) return;
     setCarregando(true);
 
+    // 1. Busca os dados da turma
     const { data: turmaData, error: turmaError } = await supabase
       .from("turmas")
       .select("id,nome,disciplina,professor_id,limite_frequencia,created_at")
@@ -53,39 +51,39 @@ export default function TurmaPage() {
     const turmaAtual = turmaData as Turma;
     setTurma(turmaAtual);
 
-    const [{ data: matriculasData }, { data: aulasData }] = await Promise.all([
-      supabase.from("matriculas").select("id,turma_id,aluno_id,created_at").eq("turma_id", turmaId),
-      supabase
-        .from("aulas")
-        .select("id,turma_id,data_hora,token,expira_em,ativa,created_at")
-        .eq("turma_id", turmaId)
-        .order("data_hora", { ascending: false }),
-    ]);
+    // 2. Busca matriculas da turma
+    const { data: matriculasData } = await supabase
+      .from("matriculas")
+      .select("id,turma_id,aluno_id,created_at")
+      .eq("turma_id", turmaId);
 
     const matriculas = (matriculasData ?? []) as Matricula[];
-    const listaAulas = (aulasData ?? []) as Aula[];
-    setAulas(listaAulas);
-
     const alunoIds = matriculas.map((item) => item.aluno_id);
-    const aulaIds = listaAulas.map((item) => item.id);
 
+    // 3. Busca alunos e presenças
     const [{ data: alunosData }, { data: presencasData }] = await Promise.all([
       alunoIds.length
         ? supabase.from("profiles").select("id,nome,email,tipo").in("id", alunoIds)
         : Promise.resolve({ data: [] as Perfil[] }),
-      aulaIds.length
-        ? supabase.from("presencas").select("id,aula_id,aluno_id,registrado_em").in("aula_id", aulaIds)
-        : Promise.resolve({ data: [] as Presenca[] }),
+      supabase.from("presencas").select("id,aula_id,aluno_id,registrado_em").eq("turma_id", turmaId),
     ]);
 
     const alunos = (alunosData ?? []) as Perfil[];
     const listaPresencas = (presencasData ?? []) as Presenca[];
-    setPresencas(listaPresencas);
 
+    // 4. Monta a lista com padrão PRESENTE
+    setAlunosLista(
+      alunos.map((a) => ({
+        ...a,
+        statusPresenca: "PRESENTE",
+      }))
+    );
+
+    // 5. Relatório de frequência
     const relatorio: LinhaRelatorio[] = alunos
       .map((aluno) => {
         const totalPresencas = listaPresencas.filter((item) => item.aluno_id === aluno.id).length;
-        const totalAulas = listaAulas.length;
+        const totalAulas = new Set(listaPresencas.map((p) => p.aula_id)).size || 1;
         return {
           aluno,
           presencas: totalPresencas,
@@ -104,20 +102,69 @@ export default function TurmaPage() {
     carregarTudo();
   }, [carregarTudo]);
 
-  useEffect(() => {
-    async function gerarQr() {
-      if (!aulaAtiva) {
-        setQrDataUrl(null);
-        return;
-      }
+  function togglePresenca(alunoId: string) {
+    setAlunosLista((prev) =>
+      prev.map((a) =>
+        a.id === alunoId
+          ? { ...a, statusPresenca: a.statusPresenca === "PRESENTE" ? "AUSENTE" : "PRESENTE" }
+          : a
+      )
+    );
+  }
 
-      const url = `${window.location.origin}/presenca/${aulaAtiva.token}`;
-      const image = await QRCode.toDataURL(url, { width: 340, margin: 2 });
-      setQrDataUrl(image);
+  // Função que cria a aula fornecendo 'expira_em' e salva as presenças
+  async function salvarChamada() {
+    if (!turmaId || alunosLista.length === 0) return;
+    setSalvandoChamada(true);
+    setMensagemChamada(null);
+
+    // Gera data de expiração fictícia (24 horas à frente) para satisfazer a restrição do banco
+    const expiraEm = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    // Passo A: Cria a aula na tabela 'aulas' com o campo expira_em preenchido
+    const { data: aulaCriada, error: errAula } = await supabase
+      .from("aulas")
+      .insert({
+        turma_id: turmaId,
+        ativa: false,
+        expira_em: expiraEm,
+      })
+      .select("id")
+      .single();
+
+    if (errAula || !aulaCriada) {
+      setMensagemChamada("❌ Erro ao criar a aula no banco: " + errAula?.message);
+      setSalvandoChamada(false);
+      return;
     }
 
-    gerarQr();
-  }, [aulaAtiva]);
+    // Passo B: Monta os registros utilizando o aula_id gerado
+    const novosRegistros = alunosLista
+      .filter((a) => a.statusPresenca === "PRESENTE")
+      .map((aluno) => ({
+        aula_id: aulaCriada.id,
+        aluno_id: aluno.id,
+        turma_id: turmaId,
+      }));
+
+    if (novosRegistros.length === 0) {
+      setMensagemChamada("✅ Chamada registrada (todos constam como ausentes).");
+      setSalvandoChamada(false);
+      carregarTudo();
+      return;
+    }
+
+    // Passo C: Salva na tabela 'presencas'
+    const { error: insertError } = await supabase.from("presencas").insert(novosRegistros);
+
+    if (insertError) {
+      setMensagemChamada("❌ Erro ao salvar chamada: " + insertError.message);
+    } else {
+      setMensagemChamada("✅ Chamada registrada e salva com sucesso!");
+      carregarTudo();
+    }
+    setSalvandoChamada(false);
+  }
 
   async function adicionarAluno(event: FormEvent) {
     event.preventDefault();
@@ -149,29 +196,6 @@ export default function TurmaPage() {
 
     setMensagemAluno(`${aluno.nome} foi adicionado à turma.`);
     setEmailAluno("");
-    carregarTudo();
-  }
-
-  async function iniciarAula() {
-    if (!profile) return;
-    setCriandoAula(true);
-
-    await supabase.from("aulas").update({ ativa: false }).eq("turma_id", turmaId).eq("ativa", true);
-
-    const expira = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    const { error: insertError } = await supabase.from("aulas").insert({
-      turma_id: turmaId,
-      expira_em: expira,
-      ativa: true,
-    });
-
-    setCriandoAula(false);
-    if (!insertError) carregarTudo();
-  }
-
-  async function encerrarAula() {
-    if (!aulaAtiva) return;
-    await supabase.from("aulas").update({ ativa: false }).eq("id", aulaAtiva.id);
     carregarTudo();
   }
 
@@ -209,54 +233,99 @@ export default function TurmaPage() {
       <AppShell profile={profile}>
         <div className="card empty-state">
           <h1>Turma não encontrada</h1>
-          <Link className="button button-primary" href="/professor">Voltar</Link>
+          <Link className="button button-primary" href="/professor">
+            Voltar
+          </Link>
         </div>
       </AppShell>
     );
   }
 
-  const presentesNaAulaAtiva = aulaAtiva
-    ? presencas.filter((item) => item.aula_id === aulaAtiva.id).length
-    : 0;
-
   return (
     <AppShell profile={profile}>
-      <div className="breadcrumb"><Link href="/professor">Minhas turmas</Link><span>/</span><span>{turma.nome}</span></div>
+      <div className="breadcrumb">
+        <Link href="/professor">Minhas turmas</Link>
+        <span>/</span>
+        <span>{turma.nome}</span>
+      </div>
 
       <section className="page-heading split-heading">
         <div>
           <p className="eyebrow">{turma.nome}</p>
           <h1>{turma.disciplina}</h1>
-          <p className="muted">{linhas.length} alunos · {aulas.length} aulas · frequência mínima {turma.limite_frequencia}%</p>
+          <p className="muted">
+            {linhas.length} alunos matriculados · frequência mínima {turma.limite_frequencia}%
+          </p>
         </div>
         <div className="button-row">
-          <button className="button button-secondary" onClick={exportarCsv}>Exportar CSV</button>
-          <button className="button button-primary" onClick={iniciarAula} disabled={criandoAula}>
-            {criandoAula ? "Iniciando..." : aulaAtiva ? "Gerar novo QR" : "Iniciar aula"}
-          </button>
         </div>
       </section>
 
-      {aulaAtiva && (
-        <section className="card live-class">
-          <div className="live-info">
-            <div className="live-pill"><span className="live-dot" /> Aula em andamento</div>
-            <h2>QR Code de presença</h2>
-            <p className="muted">
-              O aluno deve estar logado. O código expira automaticamente em <strong>{formatarDataHora(aulaAtiva.expira_em)}</strong>.
-            </p>
-            <div className="live-stats">
-              <div><strong>{presentesNaAulaAtiva}</strong><span>presentes</span></div>
-              <div><strong>{linhas.length}</strong><span>matriculados</span></div>
+      {/* Painel de Chamada Manual */}
+      <section className="card live-class" style={{ gridTemplateColumns: "1fr" }}>
+        <div className="live-info">
+          <h2>Chamada Manual da Aula</h2>
+          <p className="muted">
+            Clique no status ao lado de cada aluno para alternar entre PRESENTE e AUSENTE e depois confirme a chamada.
+          </p>
+
+          <div className="stack" style={{ marginTop: "1rem", marginBottom: "1.5rem" }}>
+            {alunosLista.length === 0 ? (
+              <p className="muted">Nenhum aluno matriculado nesta turma ainda.</p>
+            ) : (
+              alunosLista.map((aluno) => {
+                const isPresente = aluno.statusPresenca === "PRESENTE";
+                return (
+                  <div
+                    key={aluno.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "12px 16px",
+                      background: "#f8fafc",
+                      border: "1px solid #e4e8ef",
+                      borderRadius: "12px",
+                    }}
+                  >
+                    <div>
+                      <strong style={{ display: "block", color: "#172033" }}>{aluno.nome}</strong>
+                      <span className="muted small">{aluno.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => togglePresenca(aluno.id)}
+                      className={`badge ${isPresente ? "badge-success" : "badge-danger"}`}
+                      style={{ cursor: "pointer", border: "none" }}
+                    >
+                      {aluno.statusPresenca}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {mensagemChamada && (
+            <div
+              className={`alert ${
+                mensagemChamada.startsWith("✅") ? "alert-success" : "alert-danger"
+              }`}
+              style={{ marginBottom: "1rem" }}
+            >
+              {mensagemChamada}
             </div>
-            <button className="button button-danger" onClick={encerrarAula}>Encerrar aula</button>
-          </div>
-          <div className="qr-box">
-            {qrDataUrl ? <img src={qrDataUrl} alt="QR Code para registro de presença" /> : <Loading texto="Gerando QR..." />}
-            <span>Escaneie com a câmera do celular</span>
-          </div>
-        </section>
-      )}
+          )}
+
+          <button
+            className="button button-primary button-block"
+            onClick={salvarChamada}
+            disabled={salvandoChamada || alunosLista.length === 0}
+          >
+            {salvandoChamada ? "Salvando chamada..." : "Salvar Chamada da Aula"}
+          </button>
+        </div>
+      </section>
 
       <div className="two-column-grid">
         <section className="card">
@@ -284,84 +353,58 @@ export default function TurmaPage() {
           </form>
         </section>
 
-        <section className="card history-card">
+        <section className="card report-card">
           <div className="card-heading">
             <div>
-              <p className="eyebrow">Histórico</p>
-              <h2>Últimas aulas</h2>
+              <p className="eyebrow">Relatório</p>
+              <h2>Frequência por aluno</h2>
             </div>
           </div>
-          {aulas.length === 0 ? (
-            <p className="muted">Nenhuma aula realizada ainda.</p>
+
+          {linhas.length === 0 ? (
+            <div className="empty-state compact-empty">
+              <p className="muted">Adicione alunos para visualizar o relatório.</p>
+            </div>
           ) : (
-            <div className="history-list">
-              {aulas.slice(0, 5).map((aula) => {
-                const total = presencas.filter((item) => item.aula_id === aula.id).length;
-                return (
-                  <div className="history-item" key={aula.id}>
-                    <div>
-                      <strong>{formatarDataHora(aula.data_hora)}</strong>
-                      <span>{total} presença(s)</span>
-                    </div>
-                    <StatusBadge
-                      texto={aula.ativa && new Date(aula.expira_em).getTime() > Date.now() ? "Ativa" : "Encerrada"}
-                      classe={aula.ativa && new Date(aula.expira_em).getTime() > Date.now() ? "success" : "neutral"}
-                    />
-                  </div>
-                );
-              })}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Aluno</th>
+                    <th>Presenças</th>
+                    <th>Faltas</th>
+                    <th>Frequência</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhas.map((linha) => {
+                    const status = statusFrequencia(linha.frequencia, turma.limite_frequencia);
+                    return (
+                      <tr key={linha.aluno.id}>
+                        <td>
+                          <div className="student-cell">
+                            <strong>{linha.aluno.nome}</strong>
+                            <span>{linha.aluno.email}</span>
+                          </div>
+                        </td>
+                        <td>{linha.presencas}</td>
+                        <td>{linha.faltas}</td>
+                        <td>
+                          <strong>{linha.frequencia}%</strong>
+                        </td>
+                        <td>
+                          <StatusBadge texto={status.texto} classe={status.classe} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
       </div>
-
-      <section className="card report-card">
-        <div className="card-heading">
-          <div>
-            <p className="eyebrow">Relatório</p>
-            <h2>Frequência por aluno</h2>
-          </div>
-        </div>
-
-        {linhas.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <p className="muted">Adicione alunos para visualizar o relatório.</p>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Aluno</th>
-                  <th>Presenças</th>
-                  <th>Faltas</th>
-                  <th>Frequência</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.map((linha) => {
-                  const status = statusFrequencia(linha.frequencia, turma.limite_frequencia);
-                  return (
-                    <tr key={linha.aluno.id}>
-                      <td>
-                        <div className="student-cell">
-                          <strong>{linha.aluno.nome}</strong>
-                          <span>{linha.aluno.email}</span>
-                        </div>
-                      </td>
-                      <td>{linha.presencas}</td>
-                      <td>{linha.faltas}</td>
-                      <td><strong>{linha.frequencia}%</strong></td>
-                      <td><StatusBadge texto={status.texto} classe={status.classe} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
     </AppShell>
   );
 }

@@ -52,19 +52,10 @@ export default function LoginPage() {
   return (
     <main className="auth-page">
       <section className="auth-panel auth-intro">
-        <div className="auth-brand"><span className="brand-mark">F+</span> Frequência+</div>
         <div>
           <p className="eyebrow">Controle de frequência</p>
-          <h1>Presença simples para professor e aluno.</h1>
-          <p className="auth-copy">
-            O professor inicia a aula, o sistema gera um QR temporário e o aluno autenticado
-            registra sua presença em segundos.
-          </p>
         </div>
-        <div className="feature-list">
-          <span>✓ QR Code temporário</span>
-          <span>✓ Frequência calculada automaticamente</span>
-          <span>✓ Alertas de risco por falta</span>
+        <div>
         </div>
       </section>
 
@@ -73,7 +64,6 @@ export default function LoginPage() {
           <div>
             <p className="eyebrow">Acesso</p>
             <h2>Entrar no sistema</h2>
-            <p className="muted">Use a conta cadastrada no projeto.</p>
           </div>
 
           <label className="field">
@@ -106,7 +96,7 @@ export default function LoginPage() {
           </button>
 
           <p className="auth-footer">
-            Ainda não tem conta? <Link href="/cadastro">Criar conta</Link>
+             <Link href="/cadastro">Criar conta</Link>
           </p>
         </form>
       </section>

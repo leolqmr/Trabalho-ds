@@ -89,7 +89,6 @@ export default function ProfessorPage() {
         <div>
           <p className="eyebrow">Painel do professor</p>
           <h1>Minhas turmas</h1>
-          <p className="muted">Crie turmas, inicie aulas e acompanhe a frequência dos alunos.</p>
         </div>
       </section>
 

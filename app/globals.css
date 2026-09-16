@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f4f7fb;
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --text: #172033;
-  --muted: #667085;
-  --border: #e4e8ef;
-  --primary: #3558e6;
-  --primary-dark: #2744bd;
-  --primary-soft: #eef2ff;
-  --success: #15803d;
-  --success-soft: #ecfdf3;
-  --warning: #b45309;
-  --warning-soft: #fff7ed;
-  --danger: #b42318;
-  --danger-soft: #fff1f0;
+  --surface-soft: #f1eeee;
+  --text: #000000;
+  --muted: #000000;
+  --border: #000000;
+  --primary: #000000;
+  --primary-dark: #000000;
+  --primary-soft: #ffffff;
+  --success: #4f6a59;
+  --success-soft: #ffffff;
+  --warning: #ac7449;
+  --warning-soft: #b73131;
+  --danger: #f71202;
+  --danger-soft: #ffffff;
   --shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
 }
 
@@ -35,8 +35,8 @@ button { cursor: pointer; }
 .page-content { padding: 42px 0 70px; }
 
 .app-header {
-  min-height: 72px;
-  background: rgba(255, 255, 255, 0.96);
+  min-height: 58px;
+  background: rgba(251, 251, 251, 0.96);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -132,16 +132,30 @@ h2 { letter-spacing: -0.025em; }
 .badge-danger { background: var(--danger-soft); color: var(--danger); }
 .badge-neutral { background: #f2f4f7; color: #475467; }
 
-.auth-page { min-height: 100vh; display: grid; grid-template-columns: 1.05fr .95fr; background: white; }
-.auth-panel { padding: clamp(34px, 6vw, 84px); }
-.auth-intro {
-  background: linear-gradient(145deg, #1e2b62, #3558e6 68%, #6683ff);
-  color: white;
-  display: flex;
+/* Container principal centralizado no meio da tela */
+.auth-page {
   min-height: 100vh;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 44px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg); /* Usa o fundo claro padronizado da aplicação */
+  padding: 20px;
+}
+
+/* Oculta o painel lateral escuro/azul */
+.auth-intro {
+  display: none !important;
+}
+
+/* Centraliza o painel e o cartão do formulário */
+.auth-form-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 440px;
+  background: transparent;
+  padding: 0;
 }
 .auth-intro .brand-mark { background: white; color: var(--primary); }
 .auth-intro .eyebrow { color: #dbe3ff; }
