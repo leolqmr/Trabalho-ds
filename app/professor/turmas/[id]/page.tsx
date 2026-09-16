@@ -248,9 +248,6 @@ export default function TurmaPage() {
           </p>
         </div>
         <div className="button-row">
-          <button className="button button-secondary" onClick={exportarCsv}>
-            Exportar CSV
-          </button>
         </div>
       </section>
 
