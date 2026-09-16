@@ -34,7 +34,6 @@ export default function TurmaPage() {
     if (!profile || !turmaId) return;
     setCarregando(true);
 
-    // 1. Busca os dados da turma
     const { data: turmaData, error: turmaError } = await supabase
       .from("turmas")
       .select("id,nome,disciplina,professor_id,limite_frequencia,created_at")
@@ -51,7 +50,6 @@ export default function TurmaPage() {
     const turmaAtual = turmaData as Turma;
     setTurma(turmaAtual);
 
-    // 2. Busca matriculas da turma
     const { data: matriculasData } = await supabase
       .from("matriculas")
       .select("id,turma_id,aluno_id,created_at")
@@ -60,7 +58,6 @@ export default function TurmaPage() {
     const matriculas = (matriculasData ?? []) as Matricula[];
     const alunoIds = matriculas.map((item) => item.aluno_id);
 
-    // 3. Busca alunos e presenças
     const [{ data: alunosData }, { data: presencasData }] = await Promise.all([
       alunoIds.length
         ? supabase.from("profiles").select("id,nome,email,tipo").in("id", alunoIds)
@@ -71,7 +68,6 @@ export default function TurmaPage() {
     const alunos = (alunosData ?? []) as Perfil[];
     const listaPresencas = (presencasData ?? []) as Presenca[];
 
-    // 4. Monta a lista com padrão PRESENTE
     setAlunosLista(
       alunos.map((a) => ({
         ...a,
@@ -79,7 +75,6 @@ export default function TurmaPage() {
       }))
     );
 
-    // 5. Relatório de frequência
     const relatorio: LinhaRelatorio[] = alunos
       .map((aluno) => {
         const totalPresencas = listaPresencas.filter((item) => item.aluno_id === aluno.id).length;
@@ -112,16 +107,13 @@ export default function TurmaPage() {
     );
   }
 
-  // Função que cria a aula fornecendo 'expira_em' e salva as presenças
   async function salvarChamada() {
     if (!turmaId || alunosLista.length === 0) return;
     setSalvandoChamada(true);
     setMensagemChamada(null);
 
-    // Gera data de expiração fictícia (24 horas à frente) para satisfazer a restrição do banco
     const expiraEm = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-    // Passo A: Cria a aula na tabela 'aulas' com o campo expira_em preenchido
     const { data: aulaCriada, error: errAula } = await supabase
       .from("aulas")
       .insert({
@@ -133,12 +125,11 @@ export default function TurmaPage() {
       .single();
 
     if (errAula || !aulaCriada) {
-      setMensagemChamada("❌ Erro ao criar a aula no banco: " + errAula?.message);
+      setMensagemChamada("❌ Erro ao criar aula: " + errAula?.message);
       setSalvandoChamada(false);
       return;
     }
 
-    // Passo B: Monta os registros utilizando o aula_id gerado
     const novosRegistros = alunosLista
       .filter((a) => a.statusPresenca === "PRESENTE")
       .map((aluno) => ({
@@ -154,7 +145,6 @@ export default function TurmaPage() {
       return;
     }
 
-    // Passo C: Salva na tabela 'presencas'
     const { error: insertError } = await supabase.from("presencas").insert(novosRegistros);
 
     if (insertError) {
@@ -258,10 +248,12 @@ export default function TurmaPage() {
           </p>
         </div>
         <div className="button-row">
+          <button className="button button-secondary" onClick={exportarCsv}>
+            Exportar CSV
+          </button>
         </div>
       </section>
 
-      {/* Painel de Chamada Manual */}
       <section className="card live-class" style={{ gridTemplateColumns: "1fr" }}>
         <div className="live-info">
           <h2>Chamada Manual da Aula</h2>
