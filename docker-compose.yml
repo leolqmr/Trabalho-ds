@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: trabalho-ds-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: controle_frequencia
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   backend:
     build: ./backend
     ports:
@@ -10,6 +23,13 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgrespassword
+      - DB_NAME=controle_frequencia
+    depends_on:
+      - postgres
 
   frontend:
     build: ./frontend
@@ -20,3 +40,6 @@ services:
       - /app/node_modules
     stdin_open: true
     tty: true
+
+volumes:
+  pgdata:
